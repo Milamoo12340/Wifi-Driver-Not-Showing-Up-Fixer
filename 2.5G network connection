@@ -1,0 +1,99 @@
+@echo off
+setlocal enabledelayedexpansion
+title Wi-Fi Registry Network Configurator
+
+echo =======================================================
+echo         WI-FI REGISTRY NETWORK CONFIGURATOR (2.4G)
+echo =======================================================
+echo.
+
+:: Check for Administrator Rights
+openfiles >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] This script must be run as an Administrator.
+    echo Please right-click the file and select 'Run as administrator'.
+    pause
+    exit /b
+)
+
+:: User Inputs the Driver Name
+echo Enter the Wi-Fi Driver name as seen in Device Manager 
+echo (e.g., Ralink, Realtek, Broadcom, Atheros)
+set /p "TargetDriver=Input Name: "
+if "%TargetDriver%"=="" (
+    echo [ERROR] No driver name entered. Exiting.
+    pause
+    exit /b
+)
+
+echo.
+echo Searching registry for "%TargetDriver%"...
+echo -------------------------------------------------------
+
+set "BaseKey=HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}"
+set "FoundKey="
+
+:: Search through the 0000-0099 subkeys
+for /f "tokens=*" %%A in ('reg query "%BaseKey%" /f "%TargetDriver%" /s /v DriverDesc 2^>nul ^| findstr /i "4d36e972-e325-11ce-bfc1-08002be10318"') do (
+    set "FoundKey=%%A"
+)
+
+if "%FoundKey%"=="" (
+    echo [ERROR] Could not find a network adapter matching "%TargetDriver%".
+    echo Verify the spelling in Device Manager and try again.
+    pause
+    exit /b
+)
+
+echo [SUCCESS] Located Target Adapter Key:
+echo %FoundKey%
+echo.
+echo -------------------------------------------------------
+echo Visual Log: Current Values vs New Values
+echo -------------------------------------------------------
+
+:: Display current values if they exist, then apply updates
+call :UpdateKey "%FoundKey%" "CountryRegion" "5"
+call :UpdateKey "%FoundKey%" "RecommendedBand" "1"
+call :UpdateKey "%FoundKey%" "RecommendedChannel" "0"
+call :UpdateKey "%FoundKey%" "WirelessMode" "7"
+
+echo -------------------------------------------------------
+echo.
+echo Restarting Network Adapter to apply changes...
+echo Please wait...
+:: Disables and enables wireless interfaces to reload registry configurations
+netsh interface set interface name="Wi-Fi" admin=disabled >nul 2>&1
+netsh interface set interface name="Wireless Network Connection" admin=disabled >nul 2>&1
+timeout /t 3 /nobreak >nul
+netsh interface set interface name="Wi-Fi" admin=enabled >nul 2>&1
+netsh interface set interface name="Wireless Network Connection" admin=enabled >nul 2>&1
+
+echo [FINISHED] Registry configuration applied successfully.
+pause
+exit /b
+
+:: Function to update/add keys safely
+:UpdateKey
+set "KeyPath=%~1"
+set "ValueName=%~2"
+set "NewValue=%~3"
+set "CurrentVal=NOT FOUND (Will Create New String)"
+
+for /f "tokens=3*" %%X in ('reg query "%KeyPath%" /v "%ValueName%" 2^>nul') do (
+    set "CurrentVal=%%X %%Y"
+)
+
+echo Key: %ValueName%
+echo   - Old State: !CurrentVal!
+echo   - New State: %NewValue%
+
+:: reg add with /f overwrites existing keys automatically without error prompts
+reg add "%KeyPath%" /v "%ValueName%" /t REG_SZ /d "%NewValue%" /f >nul
+if %errorlevel% equ 0 (
+    echo   - Status: [UPDATED OK]
+) else (
+    echo   - Status: [FAILED TO WRITE]
+)
+echo.
+goto :eof
