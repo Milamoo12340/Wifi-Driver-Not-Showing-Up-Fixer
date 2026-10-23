@@ -40,3 +40,13 @@ Create these four keys one by one:
 4. WirelessMode
 	• Type: String Value (REG_SZ)
 	• Value Data: 7 (Sets the card to a clean 802.11b/g/n mixed mode so it can talk to modern router signals).
+
+
+Step 3: Refresh the Network Card
+
+The registry will not load into your hardware until you reset the adapter.
+1. Press the Windows Key + X and click Device Manager.
+2. Expand Network adapters, right-click your wireless card, and select Disable device.
+3. Wait about 5 seconds, right-click it again, and select Enable device.
+Once it turns back on, click the network icon in your taskbar. The card will now use these newly built rules to scan past channel 11 and find your SSID.
+
