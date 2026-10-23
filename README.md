@@ -1,3 +1,5 @@
+Choose 1 script to run, Powershell is the recommended as you can choose either 2.5Ghz or the Dual Band in the same script. 
+
 *Use my scripts to auto add these values or follow the instructions below for the exact way to fix your wifi drivers not showing up on your computer, if you aren’t in Australia but still have this issue, just look up the values or ask your local browser embedded AI for the values that match your country or region and change them according to your location. 
 Most will need the 2.5Ghz script, and using the Dual Band will still not show your drivers if your computer chip only has the ability to recognise 2.5Ghz networks so please, try that one FIRST to make sure your driver is easily found.
 You can try the dual network if you check online that your exact make and model computer is a dual band recognising PC or Laptop. you can skip the rest of this README if you want to use the script, or read if you want to manually make the adjustments.*”
