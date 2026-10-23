@@ -1,0 +1,115 @@
+# Ensure script is running with Administrative privileges
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Error "This script must be run as an Administrator! Please re-open PowerShell as administrator."
+    Pause
+    Exit
+}
+
+Clear-Host
+Write-Host "=======================================================" -ForegroundColor Cyan
+Write-Host "         POWERSHELL WI-FI REGISTRY CONFIGURATOR       " -ForegroundColor Cyan
+Write-Host "=======================================================" -ForegroundColor Cyan
+Write-Host ""
+
+# 1. Ask the user for the hardware driver name
+$targetDriver = Read-Host "Enter the Wi-Fi Driver name from Device Manager (e.g., Ralink, Realtek, Broadcom)"
+if ([string]::IsNullOrWhiteSpace($targetDriver)) {
+    Write-Host "[ERROR] No driver name entered. Exiting script." -ForegroundColor Red
+    Exit
+}
+
+# 2. Define target network adapter class key
+$basePath = "Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}"
+$targetKeyPath = $null
+
+Write-Host "`nScanning registry for network interfaces matching '$targetDriver'..." -ForegroundColor Yellow
+
+# Loop through subkeys 0000, 0001, etc. safely
+Get-ChildItem -Path $basePath | ForEach-Object {
+    $driverDesc = Get-ItemProperty -Path $_.PSPath -Name "DriverDesc" -ErrorAction SilentlyContinue
+    if ($driverDesc -and $driverDesc.DriverDesc -match $targetDriver) {
+        $targetKeyPath = $_.PSPath
+    }
+}
+
+if ($null -eq $targetKeyPath) {
+    Write-Host "[ERROR] Could not find any registry key matching '$targetDriver'." -ForegroundColor Red
+    Write-Host "Please double-check the spelling in Device Manager." -ForegroundColor Yellow
+    Exit
+}
+
+Write-Host "[SUCCESS] Located exact hardware registry directory:" -ForegroundColor Green
+Write-Host "$targetKeyPath" -ForegroundColor Gray
+Write-Host ""
+
+# 3. Prompt user for the configuration mode
+Write-Host "Select your network optimization target:" -ForegroundColor Cyan
+Write-Host " [1] 2.4GHz Only (Standard CQ58 Setup for Belong Router)"
+Write-Host " [2] Dual-Band / 5GHz / Wi-Fi 6 Setup"
+$mode = Read-Host "Enter choice (1 or 2)"
+
+# Build the payload settings matrix based on selection
+$registrySettings = @{}
+if ($mode -eq "2") {
+    Write-Host "`n[CONFIG] Loading Dual-Band / 5G Parameters..." -ForegroundColor Cyan
+    $registrySettings["CountryRegion"] = "5"
+    $registrySettings["CountryRegionABand"] = "7"
+    $registrySettings["RecommendedBand"] = "2" # Prioritise 5G radio space
+    $registrySettings["RecommendedChannel"] = "0"
+    $registrySettings["WirelessMode"] = "7"
+} else {
+    Write-Host "`n[CONFIG] Loading 2.4GHz Australia Tuning Parameters..." -ForegroundColor Cyan
+    $registrySettings["CountryRegion"] = "5" # Unlocks Ch 1-13/14 for AU spectrum
+    $registrySettings["RecommendedBand"] = "1" # Force focus onto 2.4G band
+    $registrySettings["RecommendedChannel"] = "0" # Keep selection dynamic
+    $registrySettings["WirelessMode"] = "7"   # Clean B/G/N execution
+}
+
+Write-Host "-------------------------------------------------------" -ForegroundColor Gray
+Write-Host "VISUAL UPDATE LOG: CURRENT REGS VS TARGET REGS" -ForegroundColor Yellow
+Write-Host "-------------------------------------------------------" -ForegroundColor Gray
+
+# 4. Safely evaluate, append, or overwrite keys without errors
+foreach ($item in $registrySettings.GetEnumerator()) {
+    $currentValue = "NOT FOUND (Will be initialized)"
+    
+    # Check if value exists first to log it visually
+    if (Get-ItemProperty -Path $targetKeyPath -Name $item.Name -ErrorAction SilentlyContinue) {
+        $currentValue = (Get-ItemProperty -Path $targetKeyPath -Name $item.Name).$($item.Name)
+    }
+    
+    Write-Host "Key Name: " -NoNewline
+    Write-Host "$($item.Name)" -ForegroundColor Cyan
+    Write-Host "  - Current State: " -NoNewline
+    Write-Host "$currentValue" -ForegroundColor DarkYellow
+    Write-Host "  - Target State : " -NoNewline
+    Write-Host "$($item.Value)" -ForegroundColor Green
+
+    # Force write configuration as String (REG_SZ) to mirror legacy hardware requirements
+    try {
+        New-ItemProperty -Path $targetKeyPath -Name $item.Name -Value $item.Value -PropertyType String -Force -ErrorAction Stop | Out-Null
+        Write-Host "  - Status       : [SUCCESSFULLY WRITTEN]" -ForegroundColor Green
+    } catch {
+        Write-Host "  - Status       : [WRITE ERROR: $($_.Exception.Message)]" -ForegroundColor Red
+    }
+    Write-Host ""
+}
+
+Write-Host "-------------------------------------------------------" -ForegroundColor Gray
+Write-Host "Cycling wireless network interfaces to apply updates..." -ForegroundColor Yellow
+
+# 5. Force device layer interface recycle to lock in modifications immediately
+$wifiAdapters = Get-NetAdapter | Where-Object { $_.MediaType -eq "802.3" -or $_.Name -match "Wi-Fi|Wireless" }
+foreach ($adapter in $wifiAdapters) {
+    try {
+        Write-Host "  Restarting adapter: $($adapter.Name)..." -NoNewline -ForegroundColor Gray
+        Restart-NetAdapter -Name $adapter.Name -Confirm:$false
+        Write-Host " [OK]" -ForegroundColor Green
+    } catch {
+        Write-Host " [SKIPPED/WIRED LINK]" -ForegroundColor DarkYellow
+    }
+}
+
+Write-Host "`n[FINISHED] Registry modification complete. Check your network tray for the Belong SSID." -ForegroundColor Green
+Write-Host "Press any key to exit..."
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
